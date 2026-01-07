@@ -158,22 +158,32 @@ Helper script to create properly formatted changelog entries. It supports both i
 # Interactive mode (prompts for all fields)
 ./eng/scripts/New-ChangelogEntry.ps1
 
-# One-line with parameters
+# One-line with interactive server selection
 ./eng/scripts/New-ChangelogEntry.ps1 `
-  -ChangelogPath "servers/<server-name>/CHANGELOG.md" `
   -Description "Added support for User-Assigned Managed Identity" `
   -Section "Features Added" `
-  -PR 1234
 
-# With subsection
+# Using Server parameter
 ./eng/scripts/New-ChangelogEntry.ps1 `
-  -ChangelogPath "servers/<server-name>/CHANGELOG.md" `
+  -Server "<server>" `
+  -Description "Added support for User-Assigned Managed Identity" `
+  -Section "Features Added" `
+
+# Using ChangelogPath parameter instead of Server
+./eng/scripts/New-ChangelogEntry.ps1 `
+  -ChangelogPath "servers/<server>.Mcp.Server/CHANGELOG.md" `
+  -Description "Added support for User-Assigned Managed Identity" `
+  -Section "Features Added" `
+
+# With optional PR number and subsection parameters
+./eng/scripts/New-ChangelogEntry.ps1 `
+  -Server "<server>" `
   -Description "Updated ModelContextProtocol.AspNetCore to version 0.4.0-preview.3" `
   -Section "Other Changes" `
   -Subsection "Dependency Updates" `
   -PR 1234
 
-# With a multi-line entry
+# Using a multi-line description
 $description = @"
 Added new Foundry tools:
 - foundry_agents_create: Create a new AI Foundry agent
@@ -182,10 +192,8 @@ Added new Foundry tools:
 "@
 
 ./eng/scripts/New-ChangelogEntry.ps1 `
-  -ChangelogPath "servers/<server-name>/CHANGELOG.md" `
   -Description $description `
   -Section "Features Added" `
-  -PR 1234
 ```
 
 **Features:**
@@ -205,23 +213,24 @@ Compiles all YAML entries into CHANGELOG.md.
 
 ```powershell
 # Preview what will be compiled (dry run)
-./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md" -DryRun
+./eng/scripts/Compile-Changelog.ps1 -Server "<server>" -DryRun
 
 # Compile entries into CHANGELOG.md
-./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md"
+./eng/scripts/Compile-Changelog.ps1 -Server "<server>"
 
 # Compile to a specific version
-./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md" -Version "<version>"
+./eng/scripts/Compile-Changelog.ps1 -Server "<server>" -Version "<version>"
 
 # Compile and remove YAML files after successful compilation
-./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md" -DeleteFiles
+./eng/scripts/Compile-Changelog.ps1 -Server "<server>" -DeleteFiles
 ```
 
 **Parameters:**
-- `-ChangelogPath`: Required. Path to the CHANGELOG.md file (e.g., `servers/Azure.Mcp.Server/CHANGELOG.md`)
-- `-Version`: Optional. Target version section to compile into. If not specified, compiles to "Unreleased" section
-- `-DryRun`: Preview compilation without modifying files
-- `-DeleteFiles`: Remove YAML files after successful compilation
+- `-Server`: Short server name (e.g., `Azure`, `Fabric`). Mutually exclusive with `-ChangelogPath`. If neither is provided, the user will be prompted to choose a server  interactively.
+- `-ChangelogPath`: Path to the CHANGELOG.md file (e.g., `servers/Azure.Mcp.Server/CHANGELOG.md`). Mutually exclusive with `-Server`. If neither is provided, the user will be prompted to choose a server interactively.
+- `-Version`: Optional. Target version section to compile into. If not specified, compiles to "Unreleased" section.
+- `-DryRun`: Preview compilation without modifying files.
+- `-DeleteFiles`: Remove YAML files after successful compilation.
 
 **Features:**
 - Reads all YAML files from `changelog-entries/`
@@ -258,7 +267,6 @@ When making a change that needs a changelog entry:
 2. **Create a changelog entry:**
    ```powershell
    ./eng/scripts/New-ChangelogEntry.ps1 `
-     -ChangelogPath "servers/<server-name>/CHANGELOG.md" `
      -Description "Your change description" `
      -Section "Features Added" `
      -PR <pr-number>
@@ -275,20 +283,20 @@ Before tagging a release:
 1. **Preview compilation:**
    ```powershell
    # Preview to Unreleased section
-   ./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md" -DryRun
+   ./eng/scripts/Compile-Changelog.ps1 -Server "<server>" -DryRun
    
    # Or preview to a specific version
-   ./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md" -Version "<version>" -DryRun
+   ./eng/scripts/Compile-Changelog.ps1 -Server "<server>" -Version "<version>" -DryRun
    ```
 
 2. **Compile and clean up:**
    ```powershell
-   ./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md" -DeleteFiles
+   ./eng/scripts/Compile-Changelog.ps1 -Server "<server>" -DeleteFiles
    ```
 
 3. **Sync VS Code extension CHANGELOG (if applicable):**
    ```powershell
-   ./eng/scripts/Sync-VsCodeChangelog.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md"
+   ./eng/scripts/Sync-VsCodeChangelog.ps1 -Server "<server>"
    ```
 
 4. **Update version in CHANGELOG.md:**
@@ -386,11 +394,10 @@ The compiler checks that filenames follow the expected pattern:
 Add validation to your CI pipeline:
 
 ```yaml
-# Example GitHub Actions check
 - name: Validate Changelog Entries
   run: |
     # Test compilation (dry run) - includes entry validation
-    ./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md" -DryRun
+    ./eng/scripts/Compile-Changelog.ps1 -Server "<server>" -DryRun
 ```
 
 ### Pre-commit Hooks (Optional)
@@ -510,7 +517,7 @@ When adding user-facing changes (new features, breaking changes, important bug f
 
 1. Create a changelog entry YAML file:
    ```bash
-   ./eng/scripts/New-ChangelogEntry.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md" -Description "Your change" -Section "Features Added" -PR <number>
+   ./eng/scripts/New-ChangelogEntry.ps1 -Server "<server>" -Description "Your change" -Section "Features Added" -PR <number>
    ```
 
 2. Or manually create `changelog-entries/{username}-{brief-description}.yaml`:

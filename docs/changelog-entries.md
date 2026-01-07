@@ -15,7 +15,6 @@ For most contributors, here's all you need:
 ```powershell
 # Create a changelog entry for your PR
 ./eng/scripts/New-ChangelogEntry.ps1 `
-  -ChangelogPath "servers/Azure.Mcp.Server/CHANGELOG.md" `
   -Description "Your change description here" `
   -Section "Features Added"
 ```
@@ -38,7 +37,9 @@ That's it! The PR number will be **auto-detected** from the git commit when the 
     - [Using the Generator Script](#using-the-generator-script)
       - [Interactive mode](#interactive-mode)
       - [One-line](#one-line)
-        - [With a subsection](#with-a-subsection)
+        - [Using -Server](#using--server)
+        - [Using -ChangelogPath](#using--changelogpath)
+        - [With optional parameters](#with-optional-parameters)
         - [With a multi-line entry](#with-a-multi-line-entry)
     - [Manual Creation](#manual-creation)
       - [Simple entry](#simple-entry)
@@ -110,30 +111,46 @@ The easiest way to create a changelog entry is using the generator script locate
 
 #### Interactive mode
 
+If one of the required parameters is missing (`-Description`, `-Section`, and one of `-Server` or `-ChangelogPath`), the script will prompt you for input:
+
 ```powershell
 ./eng/scripts/New-ChangelogEntry.ps1
 ```
 
 #### One-line
 
+The following examples demonstrate how to create changelog entries using one-line commands.
+
+##### Using -Server
+
 ```powershell
 ./eng/scripts/New-ChangelogEntry.ps1 `
-  -ChangelogPath "servers/<server-name>/CHANGELOG.md" `
+  -Server "Azure" `
   -Description "Added support for User-Assigned Managed Identity" `
   -Section "Features Added"
 ```
 
-> **Note:** The `-PR` parameter is optional. If omitted, the PR number will be auto-detected from the git commit during compilation.
-
-##### With a subsection
+##### Using -ChangelogPath
 
 ```powershell
 ./eng/scripts/New-ChangelogEntry.ps1 `
-  -ChangelogPath "servers/<server-name>/CHANGELOG.md" `
+  -ChangelogPath "servers/Azure.Mcp.Server/CHANGELOG.md" `
+  -Description "Fixed serialization issue in Storage tools" `
+  -Section "Bugs Fixed"
+```
+
+##### With optional parameters
+
+```powershell
+./eng/scripts/New-ChangelogEntry.ps1 `
+  -Server "Azure" `
   -Description "Updated ModelContextProtocol.AspNetCore to version 0.4.0-preview.3" `
   -Section "Other Changes" `
-  -Subsection "Dependency Updates"
+  -Subsection "Dependency Updates" `
+  -PR 887
 ```
+
+> **Note:** If a PR number is not provided, it will be auto-detected from the git commit during compilation.
 
 ##### With a multi-line entry
 
@@ -146,21 +163,21 @@ Added new Foundry tools:
 "@
 
 ./eng/scripts/New-ChangelogEntry.ps1 `
-  -ChangelogPath "servers/<server-name>/CHANGELOG.md" `
+  -Server "Azure" `
   -Description $description `
   -Section "Features Added"
 ```
 
 ### Manual Creation
 
-If you prefer to do things manually, create a new YAML file with your changes and save it in the appropriate `servers/<server-name>/changelog-entries` directory. **Use a unique name** made up of your alias or GitHub username and a brief description of the change, like this: `alias-brief-description.yaml`. For example: `servers/Azure.Mcp.Server/changelog-entries/vcolin7-fix-serialization.yaml`.
+If you prefer to do things manually, create a new YAML file with your changes and save it in the appropriate `servers/<server>.Mcp.Server/changelog-entries` directory. **Use a unique name** made up of your alias or GitHub username and a brief description of the change, like this: `username-example-brief-description.yaml`. For example: `servers/Azure.Mcp.Server/changelog-entries/vcolin7-fix-serialization.yaml`.
 
 #### Simple entry
 
 ```yaml
 changes:
-  - section: "Features Added"
-    description: "Added support for User-Assigned Managed Identity"
+  - section: "Bugs Fixed"
+    description: "Fixed serialization issue in Storage tools"
 ```
 
 > **Note:** You can also specify the PR number explicitly if you know it: `pr: 1234`
@@ -205,24 +222,25 @@ If you are a release manager, follow these steps before initiaiting a new releas
 
 1. Preview the changelog section for the version you are about to release:*
    ```powershell
-   # Compile to the default Unreleased section for Azure MCP Server
-   ./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md" -DryRun
+   # Compile to the default Unreleased section of the changelog
+   ./eng/scripts/Compile-Changelog.ps1 -Server "<Server>" -DryRun
    
    # Or compile to a specific version
-   ./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md" -Version "<version>" -DryRun
+   ./eng/scripts/Compile-Changelog.ps1 -Server "<server>" -Version "<version>" -DryRun
    ```
 
 2. Compile entries and delete files:
    ```powershell
-   # Compile to Unreleased section and delete YAML files for Azure MCP Server
-   ./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md" -DeleteFiles
+   # Compile to the Unreleased section of the changelog and delete entry YAML files
+   ./eng/scripts/Compile-Changelog.ps1 -Server "<server>" -DeleteFiles
 
-   # Or compile to a specific version
-   ./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md" -Version "<version>" -DeleteFiles
+   # Or compile to a specific version and delete entry YAML files
+   ./eng/scripts/Compile-Changelog.ps1 -Server "<server>" -Version "<version>" -DeleteFiles
    ```
 
    Notes:
-   - `-ChangelogPath`: Required parameter specifying which changelog file to compile changes for
+   - `-Server`: Short server name (e.g., `Azure`, `Fabric`). Mutually exclusive with `-ChangelogPath`. If neither is provided, you will be prompted to choose a server  interactively.
+   - `-ChangelogPath`: Path to the CHANGELOG.md file (e.g., `servers/Azure.Mcp.Server/CHANGELOG.md`). Mutually exclusive with `-Server`. If neither is provided, you will be prompted to choose a server interactively.
    - If `-Version` is specified: Entries are compiled into that version section (must exist in `CHANGELOG.md`)
    - If no `-Version` is specified: Entries are compiled into the "Unreleased" section at the top
    - If no "Unreleased" section exists and no `-Version` is specified: A new "Unreleased" section is created with the next version number
@@ -230,10 +248,10 @@ If you are a release manager, follow these steps before initiaiting a new releas
 3. Sync the VS Code extension CHANGELOG (if applicable):
    ```powershell
    # Preview the sync
-   ./eng/scripts/Sync-VsCodeChangelog.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md" -DryRun
+   ./eng/scripts/Sync-VsCodeChangelog.ps1 -Server "<server>" -DryRun
    
    # Apply the sync
-   ./eng/scripts/Sync-VsCodeChangelog.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md"
+   ./eng/scripts/Sync-VsCodeChangelog.ps1 -Server "<server>"
    ```
 
 4. Update release date in CHANGELOG.md
@@ -265,15 +283,15 @@ When compiled, entries are grouped by section and subsection. Empty sections wil
 The scripts automatically validate YAML files against the schema at `eng/schemas/changelog-entry.schema.json`. To manually validate, you can use the `-DryRun` flag as follows:
 
 ```powershell
-./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/<server-name>/CHANGELOG.md" -DryRun
+./eng/scripts/Compile-Changelog.ps1 -Server "<server>" -DryRun
 ```
 
 ## Tips
 
-- **Multiple servers**: All scripts require the `-ChangelogPath` parameter
-  - Available servers: `Azure.Mcp.Server`, `Fabric.Mcp.Server`, `Template.Mcp.Server`, etc.
-  - Each server has its own `changelog-entries/` folder and `CHANGELOG.md`
-  - Example paths: `servers/Azure.Mcp.Server/CHANGELOG.md`, `servers/Fabric.Mcp.Server/CHANGELOG.md`
+- **Multiple servers**:
+  - Currently supported servers: `Azure.Mcp.Server`, `Fabric.Mcp.Server`.
+  - Each server has its own `changelog-entries/` folder and `CHANGELOG.md`. You can copy the example file located there to get started.
+  - The `-Server` and `-ChangelogPath` parameters are mutually exclusive.
 - **PR number auto-detection**: You don't need to know the PR number when creating an entry, it will be auto-detected from the git commit during compilation. You can still provide it explicitly if you want.
 - **Edit an existing entry**: Just edit the YAML file and commit the change.
 - **Multiple entries**: Create a single YAML file with multiple entries under the `changes` section.
