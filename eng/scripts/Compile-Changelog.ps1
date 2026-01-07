@@ -1,4 +1,4 @@
-#!/usr/bin/env pwsh
+    #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
     Compiles changelog entries from YAML files into CHANGELOG.md.
@@ -12,14 +12,20 @@
     If there is no "Unreleased" section and no version is specified, a new "Unreleased" 
     section is created using the next semantic version number.
 
+.PARAMETER Server
+    Short name of the server to compile changelog entries for. Mutually exclusive with
+    -ChangelogPath. If neither is provided, you will be prompted to select a server interactively.
+    Examples: "Azure", "Fabric"
+
 .PARAMETER ChangelogPath
-    Path to the CHANGELOG.md file (required).
-    The changelog-entries directory is inferred from this path (same directory as CHANGELOG.md).
+    Path to the CHANGELOG.md file to compile entries into. Mutually exclusive with -Server. If
+    neither is provided, you will be prompted to select a server interactively.
     Examples: "servers/Azure.Mcp.Server/CHANGELOG.md", "servers/Fabric.Mcp.Server/CHANGELOG.md"
 
 .PARAMETER Version
-    Target version section to compile entries into (e.g., "2.0.0-beta.3", "1.5.2").
-    If not specified, uses the "Unreleased" section or creates one.
+    Target version section to compile entries into. If not specified, uses the "Unreleased" section
+    or creates one using the next semantic version number.
+    Examples: "2.0.0-beta.3", "1.0.0"
 
 .PARAMETER DryRun
     Preview what will be compiled without modifying any files.
@@ -28,35 +34,44 @@
     Delete YAML files after successful compilation.
 
 .EXAMPLE
-    ./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/Azure.Mcp.Server/CHANGELOG.md" -DryRun
+    ./eng/scripts/Compile-Changelog.ps1
 
-    Preview what will be compiled for Azure.Mcp.Server without making changes.
+    Compile entries into the "Unreleased" section for a server selected interactively.
+
+.EXAMPLE
+    ./eng/scripts/Compile-Changelog.ps1 -Server "Azure"
+
+    Compile entries into the "Unreleased" section for the Azure.Mcp.Server changelog.
 
 .EXAMPLE
     ./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/Fabric.Mcp.Server/CHANGELOG.md"
 
-    Compile entries into the Unreleased section for Fabric.Mcp.Server.
+    Compile entries into the "Unreleased" section of the Fabric.Mcp.Server changelog.
 
 .EXAMPLE
-    ./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/Azure.Mcp.Server/CHANGELOG.md" -Version "2.0.0-beta.3"
+    ./eng/scripts/Compile-Changelog.ps1 -Server "Azure" -Version "2.0.0-beta.3"
 
     Compile entries into the 2.0.0-beta.3 version section for Azure.Mcp.Server.
 
 .EXAMPLE
-    ./eng/scripts/Compile-Changelog.ps1 -ChangelogPath "servers/Fabric.Mcp.Server/CHANGELOG.md" -Version "1.0.0"
+    ./eng/scripts/Compile-Changelog.ps1 -Server "Fabric" -DryRun
 
-    Compile entries into the 1.0.0 version section for Fabric.Mcp.Server.
-
+    Preview what will be compiled for Fabric.Mcp.Server changelog without actually making changes.
+    
 .EXAMPLE
-    ./eng/scripts/Compile-Changelog.ps1 -DeleteFiles
+    ./eng/scripts/Compile-Changelog.ps1 -Server "Azure" -DeleteFiles
 
-    Compile entries and remove YAML files after successful compilation.
+    Compile entries for the Azure.Mcp.Server changelog and remove YAML files afterwards.
 #>
 
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$ChangelogPath,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("Azure", "Fabric")]
+    [string]$Server,
 
     [Parameter(Mandatory = $false)]
     [string]$Version,
@@ -77,10 +92,6 @@ $RepoRoot = $RepoRoot.Path.Replace('\', '/')
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# Infer changelog-entries path from CHANGELOG.md path
-$changelogDir = Split-Path $ChangelogPath -Parent
-$ChangelogEntriesPath = Join-Path $changelogDir "changelog-entries"
-
 # Helper function to convert text to title case (capitalize first letter of each word)
 function ConvertTo-TitleCase {
     param([string]$Text)
@@ -90,7 +101,8 @@ function ConvertTo-TitleCase {
     }
     
     # Use TextInfo for proper title casing
-    $textInfo = (Get-Culture).TextInfo
+    # Use InvariantCulture to ensure consistent casing across platforms
+    $textInfo = [System.Globalization.CultureInfo]::InvariantCulture.TextInfo
     return $textInfo.ToTitleCase($Text.ToLowerInvariant())
 }
 
@@ -268,34 +280,114 @@ function Build-SubsectionMapping {
     return $subsectionMapping
 }
 
-# Set up paths using $RepoRoot from common.ps1
-$changelogFile = Join-Path $RepoRoot $ChangelogPath
-$changelogEntriesDir = Join-Path $RepoRoot $ChangelogEntriesPath
-
-Write-Host "Changelog Compiler" -ForegroundColor Cyan
-Write-Host "==================" -ForegroundColor Cyan
-Write-Host ""
-
-# Check if changelog-entries directory exists
-if (-not (Test-Path $changelogEntriesDir)) {
-    Write-Error "Changelog entries directory not found: $changelogEntriesDir"
+if ($Server -and $ChangelogPath) {
+    LogError "Please provide either -Server or -ChangelogPath, but not both."
     exit 1
 }
 
-# Check if CHANGELOG.md exists
-if (-not (Test-Path $changelogFile)) {
-    Write-Error "CHANGELOG.md not found: $changelogFile"
+# Resolve ChangelogPath from the Server parameter if provided
+if ($Server) {
+    # Since we validate against short names (Azure, Fabric), just append the suffix
+    # Normalize casing to match folder names (important for Linux)
+    $Server = ConvertTo-TitleCase $Server
+    $normalizedServer = "$Server.Mcp.Server"
+
+    $serverPath = Join-Path $RepoRoot "servers" $normalizedServer "CHANGELOG.md"
+
+    if (Test-Path $serverPath) {
+        $ChangelogPath = $serverPath
+    } else {
+        LogError "Could not find CHANGELOG.md for server '$normalizedServer' (original input: '$Server')."
+        LogInfo "Expected location: $serverPath"
+        exit 1
+    }
+}
+
+# If no ChangelogPath provided, prompt user to select a server or enter custom path
+if (-not $ChangelogPath) {
+    LogInfo ""
+    LogInfo "Changelog Entry Compiler"
+    LogInfo "======================="
+    LogInfo ""
+
+    # Get valid values from ValidateSet attribute on Server parameter
+    $serverParam = $MyInvocation.MyCommand.Parameters['Server']
+    $validateSet = $serverParam.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }
+    $validServers = $validateSet.ValidValues | Sort-Object
+
+    Write-Host "Available servers:" -ForegroundColor Yellow
+
+    for ($i = 0; $i -lt $validServers.Count; $i++) {
+        $serverName = $validServers[$i]
+        $displayPath = "servers/$serverName.Mcp.Server/CHANGELOG.md"
+
+        Write-Host "  $($i + 1). $serverName   ($displayPath)"
+    }
+    
+    $customOptionIndex = $validServers.Count + 1
+
+    Write-Host "  $customOptionIndex. Custom path"
+    Write-Host ""
+    
+    $serverChoice = Read-Host "Select server (1-$customOptionIndex)"
+    
+    # Try to parse choice as integer
+    try {
+        $choiceInt = [int]$serverChoice
+        
+        # Check if choice is a valid index for preset servers
+        if ($choiceInt -ge 1 -and $choiceInt -le $validServers.Count) {
+            $selectedName = $validServers[$choiceInt - 1]
+            $ChangelogPath = "servers/$selectedName.Mcp.Server/CHANGELOG.md"
+        }
+        elseif ($choiceInt -eq $customOptionIndex) {
+            $customPath = Read-Host "Enter custom CHANGELOG.md path"
+            $ChangelogPath = $customPath.Trim()
+        }
+        else {
+            LogError "Invalid choice '$serverChoice'. Please select 1-$customOptionIndex."
+            exit 1
+        }
+    }
+    catch {
+        LogError "Invalid choice '$serverChoice'. Please enter a valid number."
+        exit 1
+    }
+    
+    Write-Host ""
+    Write-Host "Using: $ChangelogPath" -ForegroundColor Green
+    Write-Host ""
+}
+
+# Ensure we have an absolute path now, regardless of how it was set
+if (-not [System.IO.Path]::IsPathRooted($ChangelogPath)) {
+    $ChangelogPath = Join-Path $RepoRoot $ChangelogPath
+
+    # Check if CHANGELOG.md exists
+    if (-not (Test-Path $ChangelogPath)) {
+        Write-Error "CHANGELOG.md not found: $ChangelogPath"
+        exit 1
+    }    
+}
+
+# Infer changelog-entries path from CHANGELOG.md path
+$changelogDir = Split-Path $ChangelogPath -Parent
+$changelogEntriesPath = Join-Path $changelogDir "changelog-entries"
+
+# Check if changelog-entries directory exists
+if (-not (Test-Path $changelogEntriesPath)) {
+    Write-Error "Changelog entries directory not found: $changelogEntriesPath"
     exit 1
 }
 
 # Get all YAML files, excluding the example template file
 # Note: Using -Filter twice and combining results since -Include requires -Recurse
-$yamlFiles = @(Get-ChildItem -Path $changelogEntriesDir -Filter "*.yaml" -File)
-$yamlFiles += @(Get-ChildItem -Path $changelogEntriesDir -Filter "*.yml" -File)
+$yamlFiles = @(Get-ChildItem -Path $changelogEntriesPath -Filter "*.yaml" -File)
+$yamlFiles += @(Get-ChildItem -Path $changelogEntriesPath -Filter "*.yml" -File)
 $yamlFiles = @($yamlFiles | Where-Object { $_.BaseName -ne 'username-example-brief-description' })
 
 if ($yamlFiles.Count -eq 0) {
-    Write-Host "No changelog entries found in $changelogEntriesDir" -ForegroundColor Yellow
+    Write-Host "No changelog entries found in $changelogEntriesPath" -ForegroundColor Yellow
     Write-Host "Nothing to compile." -ForegroundColor Yellow
     exit 0
 }
@@ -453,7 +545,7 @@ foreach ($section in $RecommendedSectionHeaders) {
 }
 
 # Read existing CHANGELOG.md to determine target version
-$changelogContent = Get-Content -Path $changelogFile -Raw
+$changelogContent = Get-Content -Path $ChangelogPath -Raw
 
 # Determine target version section
 $targetVersionHeader = $null
@@ -756,10 +848,10 @@ if (-not $match.Success) {
 }
 
 # Write updated CHANGELOG.md
-$updatedChangelog | Set-Content -Path $changelogFile -Encoding UTF8 -NoNewline
+$updatedChangelog | Set-Content -Path $ChangelogPath -Encoding UTF8 -NoNewline
 
 Write-Host "✓ Updated CHANGELOG.md" -ForegroundColor Green
-Write-Host "  Location: $changelogFile" -ForegroundColor Gray
+Write-Host "  Location: $ChangelogPath" -ForegroundColor Gray
 Write-Host ""
 
 # Delete YAML files if requested

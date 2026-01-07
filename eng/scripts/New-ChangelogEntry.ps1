@@ -25,39 +25,44 @@
     If not provided, a timestamp-based filename will be generated.
     Example: "vcolin7-fix-serialization.yaml"
 
+.PARAMETER Server
+    Server to create the changelog entry for. The changelog-entries/ directory is inferred from the provided
+    server. If not provided, you will be prompted to select a server interactively.
+    Examples: "Azure", "Fabric"
+
 .PARAMETER ChangelogPath
-    Path to the CHANGELOG.md file
-    The changelog-entries directory is inferred from this path (same directory as CHANGELOG.md).
+    Path to the CHANGELOG.md file. The changelog-entries directory is inferred from this path (same directory
+    as CHANGELOG.md). If not provided, you will be prompted to select a server interactively.
     Examples: "servers/Azure.Mcp.Server/CHANGELOG.md", "servers/Fabric.Mcp.Server/CHANGELOG.md"
-    If not provided, you will be prompted to select a server interactively.
 
 .EXAMPLE
     ./eng/scripts/New-ChangelogEntry.ps1
 
-    Runs in fully interactive mode, prompting for server selection and all required fields.
+    Runs in fully interactive mode, prompting for server selection and other required fields.
 
 .EXAMPLE
-    ./eng/scripts/New-ChangelogEntry.ps1 -ChangelogPath "servers/Azure.Mcp.Server/CHANGELOG.md"
+    ./eng/scripts/New-ChangelogEntry.ps1 -Server "Azure"
 
-    Runs in interactive mode for Azure.Mcp.Server, prompting for all required fields.
+    Runs in interactive mode for the Azure.Mcp.Server, prompting for description and section.
 
 .EXAMPLE
     ./eng/scripts/New-ChangelogEntry.ps1 -ChangelogPath "servers/Fabric.Mcp.Server/CHANGELOG.md"
 
-    Runs in interactive mode for Fabric.Mcp.Server.
+    Creates a changelog entry interactively using the full changelog path instead of short server name.
 
 .EXAMPLE
-    ./eng/scripts/New-ChangelogEntry.ps1 -ChangelogPath "servers/Azure.Mcp.Server/CHANGELOG.md" -Description "Added new feature" -Section "Features Added" -PR 1234
+    ./eng/scripts/New-ChangelogEntry.ps1 -Server "Fabric" -Description "Added more tools" -Section "Features Added"
 
-    Creates a changelog entry for Azure.Mcp.Server with the specified parameters.
-
-.EXAMPLE
-    ./eng/scripts/New-ChangelogEntry.ps1 -ChangelogPath "servers/Fabric.Mcp.Server/CHANGELOG.md" -Description "Updated Azure.Core to 1.2.3" -Section "Other Changes" -Subsection "Dependency Updates" -PR 1234
-
-    Creates a changelog entry for Fabric.Mcp.Server with a subsection.
+    Creates a changelog entry for the Fabric.Mcp.Server with the provided description and section.
 
 .EXAMPLE
-    ./eng/scripts/New-ChangelogEntry.ps1 -ChangelogPath "servers/Azure.Mcp.Server/CHANGELOG.md" -Description "Fixed serialization bug" -Section "Bugs Fixed" -PR 1234 -Filename "vcolin7-fix-serialization"
+    ./eng/scripts/New-ChangelogEntry.ps1 -Server "Azure" -Description "Updated Azure.Core to 1.2.3" -Section "Other Changes" -Subsection "Dependency Updates" -PR 1234
+
+    Creates a changelog entry for the Azure.Mcp.Server with the provided description, section, subsection, and explicit PR number.
+
+
+.EXAMPLE
+    ./eng/scripts/New-ChangelogEntry.ps1 -Server "Azure" -Description "Fixed serialization bug" -Section "Bugs Fixed" -Filename "vcolin7-fix-serialization"
 
     Creates a changelog entry with a custom filename (vcolin7-fix-serialization.yaml).
 
@@ -68,7 +73,7 @@ Added new AI Foundry tools:
 - foundry_threads_create: Create a new AI Foundry Agent Thread
 - foundry_threads_list: List all AI Foundry Agent Threads
 "@
-    ./eng/scripts/New-ChangelogEntry.ps1 -Description $description -Section "Features Added" -PR 945
+    ./eng/scripts/New-ChangelogEntry.ps1 -Server "Azure" -Description $description -Section "Features Added"
 
     Creates a changelog entry with a multi-line description containing a list.
 #>
@@ -91,7 +96,11 @@ param(
     [int]$PR,
 
     [Parameter(Mandatory = $false)]
-    [string]$Filename
+    [string]$Filename,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("Azure", "Fabric")]
+    [string]$Server
 )
 
 Set-StrictMode -Version Latest
@@ -99,18 +108,6 @@ $ErrorActionPreference = "Stop"
 . "$PSScriptRoot/../common/scripts/common.ps1"
 
 $RepoRoot = $RepoRoot.Path.Replace('\', '/')
-
-# Determine if we're in interactive mode (any required parameter is missing)
-# Note: PR is optional - it will be auto-detected from git commit during compilation
-$isInteractive = (-not $ChangelogPath) -or (-not $Description) -or (-not $Section)
-
-# Show header once if in interactive mode
-if ($isInteractive) {
-    LogInfo ""
-    LogInfo "Changelog Entry Creator"
-    LogInfo "======================="
-    LogInfo ""
-}
 
 # Helper function to convert text to title case (capitalize first letter of each word)
 function ConvertTo-TitleCase {
@@ -123,6 +120,28 @@ function ConvertTo-TitleCase {
     # Use invariant culture TextInfo for proper title casing
     $textInfo = [System.Globalization.CultureInfo]::InvariantCulture.TextInfo
     return $textInfo.ToTitleCase($Text.ToLowerInvariant())
+}
+
+if ($Server -and $ChangelogPath) {
+    LogError "Please provide either -Server or -ChangelogPath, but not both."
+    exit 1
+}
+
+# Resolve ChangelogPath from the Server parameter if provided
+if ($Server) {
+    # Since we validate against short names (Azure, Fabric), just append the suffix
+    # Normalize casing to match folder names (important for Linux)
+    $Server = ConvertTo-TitleCase $Server
+    $normalizedServer = "$Server.Mcp.Server"
+
+    $serverPath = Join-Path $RepoRoot "servers" $normalizedServer "CHANGELOG.md"
+    if (Test-Path $serverPath) {
+        $ChangelogPath = $serverPath
+    } else {
+        LogError "Could not find CHANGELOG.md for server '$normalizedServer' (original input: '$Server')."
+        LogInfo "Expected location: $serverPath"
+        exit 1
+    }
 }
 
 # Load JSON schema and extract valid values
@@ -169,26 +188,58 @@ if ($Subsection) {
     $Subsection = $matchedSubsection
 }
 
-# Interactive prompt for ChangelogPath if not provided
-if (-not $ChangelogPath) {
+# Determine if we're in interactive mode (any required parameter is missing)
+# Note: PR is optional - it will be auto-detected from git commit during compilation
+$isInteractive = (-not $ChangelogPath) -or (-not $Description) -or (-not $Section)
+
+if ($isInteractive) {
+    LogInfo ""
+    LogInfo "Changelog Entry Creator"
+    LogInfo "======================="
+    LogInfo ""
+
+    # Get valid values from ValidateSet attribute on Server parameter
+    $serverParam = $MyInvocation.MyCommand.Parameters['Server']
+    $validateSet = $serverParam.Attributes | Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }
+    $validServers = $validateSet.ValidValues | Sort-Object
+
     Write-Host "Available servers:" -ForegroundColor Yellow
-    Write-Host "  1. Azure.Mcp.Server   (servers/Azure.Mcp.Server/CHANGELOG.md)"
-    Write-Host "  2. Fabric.Mcp.Server  (servers/Fabric.Mcp.Server/CHANGELOG.md)"
-    Write-Host "  3. Custom path"
+
+    for ($i = 0; $i -lt $validServers.Count; $i++) {
+        $serverName = $validServers[$i]
+        $displayPath = "servers/$serverName.Mcp.Server/CHANGELOG.md"
+
+        Write-Host "  $($i + 1). $serverName   ($displayPath)"
+    }
+    
+    $customOptionIndex = $validServers.Count + 1
+
+    Write-Host "  $customOptionIndex. Custom path"
     Write-Host ""
     
-    $serverChoice = Read-Host "Select server (1-3)"
-    $ChangelogPath = switch ($serverChoice) {
-        "1" { "servers/Azure.Mcp.Server/CHANGELOG.md" }
-        "2" { "servers/Fabric.Mcp.Server/CHANGELOG.md" }
-        "3" { 
-            $customPath = Read-Host "Enter custom CHANGELOG.md path"
-            $customPath.Trim()
+    $serverChoice = Read-Host "Select server (1-$customOptionIndex)"
+    
+    # Try to parse choice as integer
+    try {
+        $choiceInt = [int]$serverChoice
+        
+        # Check if choice is a valid index for preset servers
+        if ($choiceInt -ge 1 -and $choiceInt -le $validServers.Count) {
+            $selectedName = $validServers[$choiceInt - 1]
+            $ChangelogPath = "servers/$selectedName.Mcp.Server/CHANGELOG.md"
         }
-        default {
-            LogError "Invalid choice '$serverChoice'. Please select 1-3."
+        elseif ($choiceInt -eq $customOptionIndex) {
+            $customPath = Read-Host "Enter custom CHANGELOG.md path"
+            $ChangelogPath = $customPath.Trim()
+        }
+        else {
+            LogError "Invalid choice '$serverChoice'. Please select 1-$customOptionIndex."
             exit 1
         }
+    }
+    catch {
+        LogError "Invalid choice '$serverChoice'. Please enter a valid number."
+        exit 1
     }
     
     Write-Host ""
