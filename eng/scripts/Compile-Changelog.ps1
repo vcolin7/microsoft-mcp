@@ -573,7 +573,7 @@ if ($Version) {
     
     # Find the first ## header after any initial # headers
     # This regex handles both formats: "## 2.0.0 (Unreleased)" and "## [0.0.1] - 2025-09-16"
-    $firstSectionPattern = '(?m)^##\s+(?:\[(.+?)\]|(\S+))(?:\s+-\s+|\s+\()'
+    $firstSectionPattern = '(?m)^##\s+(?:\[(.+?)\]|(\S+))(?:\s+-\s+\S+|\s+\([^)]+\))'
     $firstSectionMatch = [regex]::Match($changelogContent, $firstSectionPattern)
     
     if ($firstSectionMatch.Success) {
@@ -629,7 +629,7 @@ foreach ($section in $RecommendedSectionHeaders) {
     if ($groupedEntries.ContainsKey($section)) {
         # Add empty line before section (but not before the very first section)
         if (-not $isFirstNewSection) {
-        $newEntriesMarkdown += ""
+            $newEntriesMarkdown += ""
         }
         $isFirstNewSection = $false
         $newEntriesMarkdown += "### $section"
