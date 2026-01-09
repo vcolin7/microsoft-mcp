@@ -624,9 +624,14 @@ Write-Host ""
 
 # Generate markdown content from grouped entries (needed for new sections)
 $newEntriesMarkdown = @()
+$isFirstNewSection = $true
 foreach ($section in $RecommendedSectionHeaders) {
     if ($groupedEntries.ContainsKey($section)) {
+        # Add empty line before section (but not before the very first section)
+        if (-not $isFirstNewSection) {
         $newEntriesMarkdown += ""
+        }
+        $isFirstNewSection = $false
         $newEntriesMarkdown += "### $section"
         $newEntriesMarkdown += ""
         
@@ -657,6 +662,7 @@ $match = [regex]::Match($changelogContent, $versionSectionPattern)
 # Build the merged content for preview
 $mergedContent = @()
 $mergedContent += $targetVersionHeader
+$mergedContent += ""  # Empty line after version header
 
 if (-not $match.Success) {
     # New section - just use the new entries
